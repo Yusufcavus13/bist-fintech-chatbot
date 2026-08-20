@@ -1,0 +1,13 @@
+# --- GIZLI ANAHTARLAR: ASLA git'e / GitHub'a girmesin! ---
+.env
+.streamlit/secrets.toml
+
+# --- Python sanal ortami (cok buyuk, GitHub'a gerek yok) ---
+hackathon_env/
+
+# --- Python'un otomatik urettigi cache ---
+__pycache__/
+*.pyc
+
+# --- Calisma aninda uretilen cache dosyasi ---
+son_basarili_ozet.json
