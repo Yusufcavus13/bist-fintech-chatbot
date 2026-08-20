@@ -1,56 +1,68 @@
 """
-Hafta 2 - Streamlit Chatbot (Gemini destekli)
-----------------------------------------------
-ONEMLI KAVRAM: Streamlit, sen her sey yaptiginda (mesaj yazma, buton, slider)
-bu dosyayi BASTAN ASAGI yeniden calistirir. Yani script tekrar tekrar kosar.
-Bu yuzden "hatirlanmasi gereken" seyleri (sohbet gecmisi gibi) normal degiskende
-tutamayiz -> her calismada sifirlanir. Onun yerine 'st.session_state' kullaniriz;
-o, yeniden calismalar arasinda YASAR (kalici hafiza gibi dusun).
+Hafta 2 - Streamlit Chatbot (Groq ANA + Gemini YEDEK)
+------------------------------------------------------
+ONEMLI KAVRAM: Streamlit, sen her sey yaptiginda (mesaj, buton, slider)
+bu dosyayi BASTAN ASAGI yeniden calistirir. Bu yuzden hatirlanmasi gereken
+seyleri (sohbet gecmisi) 'st.session_state' icinde tutariz; o, yeniden
+calismalar arasinda YASAR.
+
+DAYANIKLILIK: Once Groq'a soruyoruz (cok hizli, yuksek limit). Groq bir sebeple
+cevap vermezse OTOMATIK Gemini'ye dusuyoruz. Boylece kullanici hata gormez.
+Normalde sadece Groq calisir -> yavaslamaz.
 """
 
 import os
 import streamlit as st
 from dotenv import load_dotenv
+from groq import Groq
 from google import genai
 from google.genai import types
 
 load_dotenv()
 
-# --- API anahtarini akilli bul: hem yerelde hem bulutta calissin -----------
-# Deploy edilince (Streamlit Cloud) anahtar 'st.secrets'ten gelir.
-# Yerelde (senin bilgisayarin) ise .env'den gelir. Ikisini de destekle:
-def api_key_al():
-    try:
-        if "GEMINI_API_KEY" in st.secrets:      # Streamlit Cloud "Secrets" kutusu
-            return st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        pass                                    # yerelde secrets.toml yoksa sorun degil
-    return os.getenv("GEMINI_API_KEY")          # .env'e dus
+GROQ_MODEL_SECENEKLERI = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]  # ana (hizli)
+GEMINI_MODEL = "gemini-flash-latest"                                    # yedek
 
-# --- 1) Client'i bir kez kur ve sakla ---------------------------------------
-# @st.cache_resource: her yeniden calismada client'i SIFIRDAN yaratma, bir kez
-# yaratip sakla (pahali nesneler icin). C#'ta 'singleton' gibi dusunebilirsin.
+
+# --- API anahtarlarini akilli bul: hem yerel (.env) hem bulut (st.secrets) --
+def anahtar_al(isim):
+    try:
+        if isim in st.secrets:          # Streamlit Cloud "Secrets"
+            return st.secrets[isim]
+    except Exception:
+        pass                            # yerelde secrets.toml yoksa sorun degil
+    return os.getenv(isim)              # .env'e dus
+
+
+# --- Client'leri bir kez kur ve sakla (singleton) --------------------------
 @st.cache_resource
-def client_al():
+def groq_client_al():
+    return Groq(api_key=anahtar_al("GROQ_API_KEY"))
+
+@st.cache_resource
+def gemini_client_al():
     return genai.Client(
-        api_key=api_key_al(),
+        api_key=anahtar_al("GEMINI_API_KEY"),
         http_options=types.HttpOptions(
-            timeout=60_000,   # 60 sn: bulutta ag daha yavas, 20 sn ReadTimeout'a yol aciyordu
+            timeout=30_000,   # yedek cabuk pes etsin diye kisa tutuldu
             retry_options=types.HttpRetryOptions(
-                attempts=5, initial_delay=1.0, max_delay=8.0,  # yogunlukta daha cok dene
-                http_status_codes=[500, 502, 503, 504],  # 429 (kota) haric
+                attempts=2, initial_delay=1.0, max_delay=4.0,
+                http_status_codes=[500, 502, 503, 504],
             ),
         ),
     )
 
-client = client_al()
+groq_client = groq_client_al()
+gemini_client = gemini_client_al()
 
-# --- 2) Sayfa ayarlari + baslik ---------------------------------------------
+
+# --- Sayfa ayarlari + baslik ------------------------------------------------
 st.set_page_config(page_title="Fintech Asistani", page_icon="📈")
 st.title("📈 Fintech Chatbot")
-st.caption("Hafta 2 · Streamlit + Gemini · streaming + sohbet gecmisi")
+st.caption("Hafta 2 · Groq (ana) + Gemini (yedek) · streaming + sohbet gecmisi")
 
-# --- 3) Kenar cubugu (sidebar): davranisi CANLI degistir --------------------
+
+# --- Kenar cubugu: davranisi CANLI degistir ---------------------------------
 with st.sidebar:
     st.header("⚙️ Ayarlar")
 
@@ -67,65 +79,80 @@ with st.sidebar:
         min_value=0.0, max_value=2.0, value=0.3, step=0.1,
     )
 
-    model_adi = st.selectbox(
-        "Model",
-        ["gemini-flash-latest", "gemini-3.6-flash"],
+    groq_model = st.selectbox(
+        "Ana model (Groq)",
+        GROQ_MODEL_SECENEKLERI,
+        help="120b daha guclu, 20b daha hizli. Ikisi de cok hizli.",
     )
 
     if st.button("🗑️ Sohbeti temizle"):
         st.session_state.messages = []
-        st.rerun()  # ekrani hemen yenile
+        st.rerun()
 
-# --- 4) Sohbet gecmisini kalici hafizada baslat -----------------------------
+
+# --- Sohbet gecmisini kalici hafizada baslat --------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []   # her eleman: {"role": "user"/"assistant", "content": "..."}
 
-# --- 5) Simdiye kadarki gecmisi ekrana ciz ----------------------------------
+# --- Simdiye kadarki gecmisi ekrana ciz -------------------------------------
 for mesaj in st.session_state.messages:
-    with st.chat_message(mesaj["role"]):        # baloncuk (user / assistant)
+    with st.chat_message(mesaj["role"]):
         st.markdown(mesaj["content"])
 
-# --- Yardimci: bizim gecmisi Gemini'nin bekledigi formata cevir -------------
-# Not: Gemini AI tarafina "assistant" degil "model" der.
-def gecmisi_contents_yap(messages):
-    contents = []
-    for m in messages:
-        rol = "user" if m["role"] == "user" else "model"
-        contents.append(types.Content(role=rol, parts=[types.Part(text=m["content"])]))
-    return contents
 
-# --- 6) Kullanicidan girdi al (en alttaki sohbet kutusu) --------------------
+# --- Yardimci: bizim gecmisi Gemini'nin formatina cevir ---------------------
+def gemini_contents_yap(mesajlar):
+    out = []
+    for m in mesajlar:
+        rol = "user" if m["role"] == "user" else "model"   # Gemini "assistant" degil "model" der
+        out.append(types.Content(role=rol, parts=[types.Part(text=m["content"])]))
+    return out
+
+
+# --- KALP: once Groq, cokerse Gemini. Ikisi de streaming. -------------------
+def cevap_akisi(mesajlar, system_prompt, temperature, groq_model):
+    # 1) ANA: Groq (hizli, yuksek limit)
+    try:
+        stream = groq_client.chat.completions.create(
+            model=groq_model,
+            messages=[{"role": "system", "content": system_prompt}] + mesajlar,
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            parca = chunk.choices[0].delta.content
+            if parca:
+                yield parca
+        return  # basariyla bitti, Gemini'ye hic dokunma
+    except Exception:
+        pass    # Groq patladi -> sessizce yedege gec
+
+    # 2) YEDEK: Gemini
+    try:
+        stream = gemini_client.models.generate_content_stream(
+            model=GEMINI_MODEL,
+            contents=gemini_contents_yap(mesajlar),
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=temperature,
+            ),
+        )
+        for chunk in stream:
+            if chunk.text:
+                yield chunk.text
+        return
+    except Exception:
+        yield "⚠️ Su an iki servis de yanit veremedi. Lutfen birkac saniye sonra tekrar dene."
+
+
+# --- Kullanicidan girdi al --------------------------------------------------
 if soru := st.chat_input("Bir sey sor... (or: Aselsan hakkinda kisa bilgi ver)"):
-    # a) kullanici mesajini gecmise ekle + ekrana bas
     st.session_state.messages.append({"role": "user", "content": soru})
     with st.chat_message("user"):
         st.markdown(soru)
 
-    # b) modelin cevabini STREAMING ile bas
     with st.chat_message("assistant"):
-        try:
-            stream = client.models.generate_content_stream(
-                model=model_adi,
-                contents=gecmisi_contents_yap(st.session_state.messages),
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,   # sidebar'daki is tanimi
-                    temperature=temperature,             # sidebar'daki slider
-                ),
-            )
-
-            # st.write_stream, generator'dan gelen parcalari canli akitir
-            # ve sonunda tam metni dondurur.
-            def metin_akisi():
-                for chunk in stream:
-                    if chunk.text:
-                        yield chunk.text
-
-            tam_cevap = st.write_stream(metin_akisi)
-
-            # c) modelin cevabini da gecmise ekle (ki sonraki turda hatirlasin)
-            st.session_state.messages.append({"role": "assistant", "content": tam_cevap})
-
-        except Exception as e:
-            # Cokme yerine kullaniciya nazik hata goster (or: 429 kota, 503 yogunluk)
-            st.error(f"Su an cevap alinamadi: {type(e).__name__}. "
-                     f"Kota dolduysa ~1 dk sonra tekrar dene.")
+        tam_cevap = st.write_stream(
+            cevap_akisi(st.session_state.messages, system_prompt, temperature, groq_model)
+        )
+        st.session_state.messages.append({"role": "assistant", "content": tam_cevap})
