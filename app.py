@@ -23,6 +23,14 @@ load_dotenv()
 GROQ_MODEL_SECENEKLERI = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]  # ana (hizli)
 GEMINI_MODEL = "gemini-flash-latest"                                    # yedek
 
+# Modele HTML degil Markdown yazdirmak icin (yoksa cevapta <ul><li> gorunur).
+# Bu kural, sidebar'daki system prompt ne olursa olsun HEP eklenir.
+BICIM_TALIMATI = (
+    "\n\nBICIM KURALI: Cevabini SADECE Markdown ile bicimlendir. "
+    "HTML etiketi (<ul>, <li>, <p>, <b>, <table> vb.) ASLA kullanma. "
+    "Liste icin '- ' ile madde yaz, vurgu icin **...** kullan."
+)
+
 
 # --- API anahtarlarini akilli bul: hem yerel (.env) hem bulut (st.secrets) --
 def anahtar_al(isim):
@@ -111,11 +119,12 @@ def gemini_contents_yap(mesajlar):
 
 # --- KALP: once Groq, cokerse Gemini. Ikisi de streaming. -------------------
 def cevap_akisi(mesajlar, system_prompt, temperature, groq_model):
+    sistem = system_prompt + BICIM_TALIMATI   # HTML yerine Markdown zorla
     # 1) ANA: Groq (hizli, yuksek limit)
     try:
         stream = groq_client.chat.completions.create(
             model=groq_model,
-            messages=[{"role": "system", "content": system_prompt}] + mesajlar,
+            messages=[{"role": "system", "content": sistem}] + mesajlar,
             temperature=temperature,
             stream=True,
         )
@@ -133,7 +142,7 @@ def cevap_akisi(mesajlar, system_prompt, temperature, groq_model):
             model=GEMINI_MODEL,
             contents=gemini_contents_yap(mesajlar),
             config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
+                system_instruction=sistem,
                 temperature=temperature,
             ),
         )
