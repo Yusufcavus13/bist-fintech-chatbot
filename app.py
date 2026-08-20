@@ -1,167 +1,108 @@
 """
-Hafta 2 - Streamlit Chatbot (Groq ANA + Gemini YEDEK)
-------------------------------------------------------
-ONEMLI KAVRAM: Streamlit, sen her sey yaptiginda (mesaj, buton, slider)
-bu dosyayi BASTAN ASAGI yeniden calistirir. Bu yuzden hatirlanmasi gereken
-seyleri (sohbet gecmisi) 'st.session_state' icinde tutariz; o, yeniden
-calismalar arasinda YASAR.
+FinKalkan - Turkiye Gundeminden Fintech Problem Cozucu Platform
+================================================================
+AMAC: Chatbot yapmak degil, GERCEK SORUNLARI cozmek.
+Kullanici derdine gore arac secer; her arac ayni motorlari (LLM + RAG) paylasir.
 
-DAYANIKLILIK: Once Groq'a soruyoruz (cok hizli, yuksek limit). Groq bir sebeple
-cevap vermezse OTOMATIK Gemini'ye dusuyoruz. Boylece kullanici hata gormez.
-Normalde sadece Groq calisir -> yavaslamaz.
+Bu dosya ANA SAYFA (problem menusu). Her arac 'pages/' altinda ayri sayfa.
 """
 
-import os
 import streamlit as st
-from dotenv import load_dotenv
-from groq import Groq
-from google import genai
-from google.genai import types
 
-load_dotenv()
+st.set_page_config(page_title="FinKalkan", page_icon="🛡️", layout="wide")
 
-GROQ_MODEL_SECENEKLERI = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]  # ana (hizli)
-GEMINI_MODEL = "gemini-flash-latest"                                    # yedek
-
-# Modele HTML degil Markdown yazdirmak icin (yoksa cevapta <ul><li> gorunur).
-# Bu kural, sidebar'daki system prompt ne olursa olsun HEP eklenir.
-BICIM_TALIMATI = (
-    "\n\nBICIM KURALI: Cevabini SADECE Markdown ile bicimlendir. "
-    "HTML etiketi (<ul>, <li>, <p>, <b>, <table> vb.) ASLA kullanma. "
-    "Liste icin '- ' ile madde yaz, vurgu icin **...** kullan."
+# --- Baslik ----------------------------------------------------------------
+st.title("🛡️ FinKalkan")
+st.markdown(
+    "**Türkiye'nin güncel finans dertlerine tek platform.** "
+    "Derdini seç, aracı kullan — her araç yapay zekâ + gerçek belge/veri ile çalışır."
 )
 
+st.info(
+    "📌 **Gündem (2026):** Enflasyon ~%25 · Dolar yıl sonu ~50 TL beklentisi · "
+    "Dijital dolandırıcılık ve kara para aklama vakaları artışta · "
+    "Tasarruf ve finansal okuryazarlık düşük.",
+    icon="📊",
+)
 
-# --- API anahtarlarini akilli bul: hem yerel (.env) hem bulut (st.secrets) --
-def anahtar_al(isim):
-    try:
-        if isim in st.secrets:          # Streamlit Cloud "Secrets"
-            return st.secrets[isim]
-    except Exception:
-        pass                            # yerelde secrets.toml yoksa sorun degil
-    return os.getenv(isim)              # .env'e dus
+st.divider()
 
+# --- Arac katalogu ---------------------------------------------------------
+# durum: "hazir" | "yapiliyor" | "planlandi"
+ARACLAR = [
+    {
+        "no": 5, "ikon": "📄", "ad": "KAP Rapor Zekâsı",
+        "ozet": "200 sayfalık faaliyet raporu → 1 sayfalık yatırımcı özeti, risk radarı ve **kaynak gösteren** soru-cevap.",
+        "kim": "Bireysel yatırımcı", "girdi": "KAP faaliyet raporu (PDF)",
+        "durum": "yapiliyor", "sayfa": "pages/1_📄_KAP_Rapor_Zekasi.py",
+    },
+    {
+        "no": 4, "ikon": "🔤", "ad": "Finansal Okuryazarlık Asistanı",
+        "ozet": "Ağır dilli ürün dokümanını (fon bilgi formu, izahname) sade Türkçeye çevirir, sorularını belgeye dayanarak yanıtlar.",
+        "kim": "Ürünü anlamayan vatandaş", "girdi": "Ürün dokümanı (PDF)",
+        "durum": "yapiliyor", "sayfa": "pages/2_🔤_Okuryazarlik_Asistani.py",
+    },
+    {
+        "no": 1, "ikon": "🎣", "ad": "Dolandırıcılık Kalkanı",
+        "ozet": "Şüpheli mesajı yapıştır → risk skoru, kırmızı bayraklar (garanti getiri, aciliyet, IBAN isteme) ve ne yapman gerektiği.",
+        "kim": "Herkes", "girdi": "Şüpheli mesaj/ilan metni",
+        "durum": "planlandi", "sayfa": None,
+    },
+    {
+        "no": 3, "ikon": "📉", "ad": "Enflasyon Koçu",
+        "ozet": "Harcama ekstreni yükle → nereye para kaçtığını gör, enflasyona karşı kişisel tasarruf planı al.",
+        "kim": "Alım gücü eriyen herkes", "girdi": "Ekstre (CSV)",
+        "durum": "planlandi", "sayfa": None,
+    },
+    {
+        "no": 2, "ikon": "🕵️", "ad": "AML Erken Uyarı",
+        "ozet": "İşlem verisinde aklama tipolojilerini yakalar, şüphelileri risk skoruyla sıralar, otomatik SAR rapor taslağı yazar.",
+        "kim": "Uyum (compliance) ekipleri", "girdi": "İşlem verisi (CSV)",
+        "durum": "planlandi", "sayfa": None,
+    },
+    {
+        "no": 6, "ikon": "🏭", "ad": "KOBİ Kur & Nakit Akışı Uyarısı",
+        "ozet": "Kur hareketleri ve nakit akışını izleyip KOBİ'ye erken uyarı verir.",
+        "kim": "KOBİ sahibi", "girdi": "Nakit akışı + kur verisi",
+        "durum": "planlandi", "sayfa": None,
+    },
+    {
+        "no": 7, "ikon": "🏦", "ad": "Alternatif Kredi Risk Özeti",
+        "ozet": "Finansal tablolardan kredi riski özeti çıkarır.",
+        "kim": "Kredi analisti", "girdi": "Finansal tablo",
+        "durum": "planlandi", "sayfa": None,
+    },
+]
 
-# --- Client'leri bir kez kur ve sakla (singleton) --------------------------
-@st.cache_resource
-def groq_client_al():
-    return Groq(api_key=anahtar_al("GROQ_API_KEY"))
+ROZET = {
+    "hazir": ("✅ Hazır", "normal"),
+    "yapiliyor": ("🔨 Yapım aşamasında", "normal"),
+    "planlandi": ("📋 Planlandı", "off"),
+}
 
-@st.cache_resource
-def gemini_client_al():
-    return genai.Client(
-        api_key=anahtar_al("GEMINI_API_KEY"),
-        http_options=types.HttpOptions(
-            timeout=30_000,   # yedek cabuk pes etsin diye kisa tutuldu
-            retry_options=types.HttpRetryOptions(
-                attempts=2, initial_delay=1.0, max_delay=4.0,
-                http_status_codes=[500, 502, 503, 504],
-            ),
-        ),
-    )
+st.subheader("Derdini seç 👇")
 
-groq_client = groq_client_al()
-gemini_client = gemini_client_al()
+# Kartlari 2'li satirlar halinde diz
+for i in range(0, len(ARACLAR), 2):
+    kolonlar = st.columns(2)
+    for kolon, arac in zip(kolonlar, ARACLAR[i:i + 2]):
+        with kolon:
+            with st.container(border=True):
+                etiket, _ = ROZET[arac["durum"]]
+                st.markdown(f"### {arac['ikon']} {arac['ad']}")
+                st.caption(f"Problem #{arac['no']} · {etiket}")
+                st.write(arac["ozet"])
+                st.caption(f"👤 **Kime:** {arac['kim']}  \n📥 **Girdi:** {arac['girdi']}")
 
+                if arac["durum"] == "planlandi":
+                    st.button("Yakında", key=f"btn{arac['no']}", disabled=True,
+                              use_container_width=True)
+                else:
+                    st.page_link(arac["sayfa"], label="Aracı aç →",
+                                 use_container_width=True)
 
-# --- Sayfa ayarlari + baslik ------------------------------------------------
-st.set_page_config(page_title="Fintech Asistani", page_icon="📈")
-st.title("📈 Fintech Chatbot")
-st.caption("Hafta 2 · Groq (ana) + Gemini (yedek) · streaming + sohbet gecmisi")
-
-
-# --- Kenar cubugu: davranisi CANLI degistir ---------------------------------
-with st.sidebar:
-    st.header("⚙️ Ayarlar")
-
-    system_prompt = st.text_area(
-        "System prompt (modelin 'is tanimi')",
-        value="Sen Borsa Istanbul odakli, sade ve net konusan bir finans asistanisin. "
-              "Emin olmadigin rakamlari UYDURMA; bilmiyorsan bilmedigini soyle.",
-        height=140,
-        help="Bunu degistirip ayni soruyu tekrar sor -> davranisin nasil degistigini gor.",
-    )
-
-    temperature = st.slider(
-        "Temperature (0 = net/kararli, yuksek = yaratici)",
-        min_value=0.0, max_value=2.0, value=0.3, step=0.1,
-    )
-
-    groq_model = st.selectbox(
-        "Ana model (Groq)",
-        GROQ_MODEL_SECENEKLERI,
-        help="120b daha guclu, 20b daha hizli. Ikisi de cok hizli.",
-    )
-
-    if st.button("🗑️ Sohbeti temizle"):
-        st.session_state.messages = []
-        st.rerun()
-
-
-# --- Sohbet gecmisini kalici hafizada baslat --------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []   # her eleman: {"role": "user"/"assistant", "content": "..."}
-
-# --- Simdiye kadarki gecmisi ekrana ciz -------------------------------------
-for mesaj in st.session_state.messages:
-    with st.chat_message(mesaj["role"]):
-        st.markdown(mesaj["content"])
-
-
-# --- Yardimci: bizim gecmisi Gemini'nin formatina cevir ---------------------
-def gemini_contents_yap(mesajlar):
-    out = []
-    for m in mesajlar:
-        rol = "user" if m["role"] == "user" else "model"   # Gemini "assistant" degil "model" der
-        out.append(types.Content(role=rol, parts=[types.Part(text=m["content"])]))
-    return out
-
-
-# --- KALP: once Groq, cokerse Gemini. Ikisi de streaming. -------------------
-def cevap_akisi(mesajlar, system_prompt, temperature, groq_model):
-    sistem = system_prompt + BICIM_TALIMATI   # HTML yerine Markdown zorla
-    # 1) ANA: Groq (hizli, yuksek limit)
-    try:
-        stream = groq_client.chat.completions.create(
-            model=groq_model,
-            messages=[{"role": "system", "content": sistem}] + mesajlar,
-            temperature=temperature,
-            stream=True,
-        )
-        for chunk in stream:
-            parca = chunk.choices[0].delta.content
-            if parca:
-                yield parca
-        return  # basariyla bitti, Gemini'ye hic dokunma
-    except Exception:
-        pass    # Groq patladi -> sessizce yedege gec
-
-    # 2) YEDEK: Gemini
-    try:
-        stream = gemini_client.models.generate_content_stream(
-            model=GEMINI_MODEL,
-            contents=gemini_contents_yap(mesajlar),
-            config=types.GenerateContentConfig(
-                system_instruction=sistem,
-                temperature=temperature,
-            ),
-        )
-        for chunk in stream:
-            if chunk.text:
-                yield chunk.text
-        return
-    except Exception:
-        yield "⚠️ Su an iki servis de yanit veremedi. Lutfen birkac saniye sonra tekrar dene."
-
-
-# --- Kullanicidan girdi al --------------------------------------------------
-if soru := st.chat_input("Bir sey sor... (or: Aselsan hakkinda kisa bilgi ver)"):
-    st.session_state.messages.append({"role": "user", "content": soru})
-    with st.chat_message("user"):
-        st.markdown(soru)
-
-    with st.chat_message("assistant"):
-        tam_cevap = st.write_stream(
-            cevap_akisi(st.session_state.messages, system_prompt, temperature, groq_model)
-        )
-        st.session_state.messages.append({"role": "assistant", "content": tam_cevap})
+st.divider()
+st.caption(
+    "FinKalkan · Borsa İstanbul Fintech Hackathon hazırlığı · "
+    "Problemler: Türkiye Gündeminden Fintech Problem Bankası"
+)
