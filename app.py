@@ -35,9 +35,9 @@ def client_al():
     return genai.Client(
         api_key=api_key_al(),
         http_options=types.HttpOptions(
-            timeout=20_000,
+            timeout=60_000,   # 60 sn: bulutta ag daha yavas, 20 sn ReadTimeout'a yol aciyordu
             retry_options=types.HttpRetryOptions(
-                attempts=3, initial_delay=1.0, max_delay=4.0,
+                attempts=5, initial_delay=1.0, max_delay=8.0,  # yogunlukta daha cok dene
                 http_status_codes=[500, 502, 503, 504],  # 429 (kota) haric
             ),
         ),
